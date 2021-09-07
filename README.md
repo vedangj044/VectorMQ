@@ -1,4 +1,4 @@
-# MessageQ
+# VectorMQ
 
 Message queue over quic. cha
 
