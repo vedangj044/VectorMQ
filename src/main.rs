@@ -42,16 +42,12 @@ async fn main() -> Result<()> {
     loop {
         select! {
             _result = tokio::time::sleep(Duration::from_millis(100)) => {
-                node.send_message({
-                    if !buf.is_empty() {
-                        let mesg = buf.pop_front();
-                        Bytes::from(mesg.unwrap())
-
-                    }
-                    else {
-                        Bytes::default()
-                    }
-                }, &peer, 0).await?;
+                if !buf.is_empty() {
+                    node.send_message({
+                        let msg = buf.pop_front();
+                        Bytes::from(msg.unwrap())
+                    }, &peer, 0).await?;   
+                }
                 // tokio::time::sleep(Duration::from_millis(100)).await;
             }
             result = incoming_messages.next() => {
