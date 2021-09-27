@@ -1,12 +1,16 @@
 use anyhow::Result;
-use bytes::Bytes;
+// use bytes::Bytes;
 use qp2p::{Config, ConnId, Endpoint};
 use std::{
-    collections::VecDeque,
+    collections::{HashMap, VecDeque},
     net::{Ipv4Addr, SocketAddr},
+    ops::Mul,
+    str::from_utf8,
+    sync::{Arc, Mutex},
     time::Duration,
 };
-use tokio::select;
+// use tokio::{runtime::Handle, select};
+use tokio::sync::mpsc;
 
 #[derive(Default, Ord, PartialEq, PartialOrd, Eq, Clone, Copy)]
 struct XId(pub [u8; 32]);
@@ -19,9 +23,13 @@ impl ConnId for XId {
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    let (node, _incoming_conns, mut incoming_messages, _disconnections, _contact) =
+    let queue_mapping: Arc<Mutex<HashMap<String, VecDeque<String>>>> =
+        Arc::new(Mutex::new(HashMap::new()));
+    let connections: Arc<Mutex<HashMap<SocketAddr, String>>> = Arc::new(Mutex::new(HashMap::new()));
+
+    let (_node, _incoming_conns, mut incoming_messages, _disconnections, _contact) =
         Endpoint::<XId>::new(
-            SocketAddr::from((Ipv4Addr::LOCALHOST, 0)),
+            SocketAddr::from((Ipv4Addr::LOCALHOST, 5555)),
             &[],
             Config {
                 idle_timeout: Duration::from_secs(60 * 60).into(),
@@ -30,34 +38,46 @@ async fn main() -> Result<()> {
         )
         .await?;
 
-    println!("Started {:?}", node.public_addr());
-
-    let peer: SocketAddr = SocketAddr::from((Ipv4Addr::LOCALHOST, 5555));
-    node.connect_to(&peer).await?;
-
-    println!("Connected to consumer");
-
-    let mut buf: VecDeque<String> = VecDeque::new();
-
     loop {
-        select! {
-            _result = tokio::time::sleep(Duration::from_millis(100)) => {
-                if !buf.is_empty() {
-                    node.send_message({
-                        let msg = buf.pop_front();
-                        Bytes::from(msg.unwrap())
-                    }, &peer, 0).await?;   
+        // Creating a connection
+        let queue_id = incoming_messages.next().await;
+        match queue_id {
+            Some((socker_addr, queue_name_bytes)) => {
+                let q = from_utf8(&queue_name_bytes).unwrap().to_string();
+
+                let dd = connections.lock().unwrap();
+                if dd.contains_key(&socker_addr) {
+                    let q1 = dd.get(&socker_addr).unwrap();
+                    let mut db = queue_mapping.lock().unwrap();
+                    db.get_mut(q1).unwrap().push_back(q);
+                } else {
+                    let v: Vec<&str> = q.split("__").collect();
+
+                    let queue_name = v.get(0).unwrap().to_owned();
+                    let con = v.get(1).unwrap().to_string();
+
+                    let consumer;
+                    if con == "con".to_string() {
+                        consumer = true;
+                    } else {
+                        consumer = false;
+                    }
+                    println!("queue_name: {}, consumer : {:?}", queue_name, consumer);
+
+                    let ve = VecDeque::new();
+
+                    let mut db = queue_mapping.lock().unwrap();
+                    db.insert(queue_name.to_string(), ve);
+
+                    // hashmap.insert(queue_name.to_string(), ve);
+
+                    let mut cn = connections.lock().unwrap();
+                    cn.insert(socker_addr, queue_name.to_string());
                 }
-                // tokio::time::sleep(Duration::from_millis(100)).await;
             }
-            result = incoming_messages.next() => {
-                buf.push_back(format!("{:?}", result.unwrap().1));
+            None => {
+                println!("Invalid queue name");
             }
         }
     }
-
-    // while let Some((_socker_addr, bytes)) = incoming_messages.next().await {
-    //     buf.push_back(format!("{:?}", bytes));
-    // };
-    // Ok(())
 }
