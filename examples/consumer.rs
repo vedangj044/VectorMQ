@@ -35,14 +35,14 @@ async fn main() -> Result<()> {
     println!("Consumes {}", node.public_addr());
 
     let conn = node
-    .connect_to(&SocketAddr::from((Ipv4Addr::LOCALHOST, 5555)))
-    .await?;
+        .connect_to(&SocketAddr::from((Ipv4Addr::LOCALHOST, 5555)))
+        .await?;
 
     conn.send(Bytes::from("vedang__con")).await.unwrap();
 
     while let Some((_addr, message)) = incoming_messages.next().await {
         println!("Received {}", from_utf8(&message).unwrap().to_string());
-    };
+    }
 
     Ok(())
 }

@@ -39,16 +39,16 @@ async fn main() -> Result<()> {
     // }
 
     let (node, incoming_conns, mut incoming_messages, _disconnections, _contact) =
-    Endpoint::<XId>::new(
-        SocketAddr::from((Ipv4Addr::LOCALHOST, 0)),
-        &[],
-        Config {
-            idle_timeout: Duration::from_secs(60 * 60).into(),
-            ..Default::default()
-        },
-    )
-    .await
-    .unwrap();
+        Endpoint::<XId>::new(
+            SocketAddr::from((Ipv4Addr::LOCALHOST, 0)),
+            &[],
+            Config {
+                idle_timeout: Duration::from_secs(60 * 60).into(),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
 
     println!("Connectes {}", node.public_addr());
 
@@ -57,7 +57,6 @@ async fn main() -> Result<()> {
         .await
         .unwrap();
 
-        
     conn.send(Bytes::from("vedang__pub")).await?;
 
     conn.send(Bytes::from("123")).await?;
@@ -69,7 +68,6 @@ async fn main() -> Result<()> {
 
     conn.send(Bytes::from("345")).await.unwrap();
     println!("Sent3");
-
 
     conn.send(Bytes::from("456")).await.unwrap();
     conn.send(Bytes::from("567")).await.unwrap();
