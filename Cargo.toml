@@ -12,3 +12,5 @@ tokio = { version = "1.11.0", feature = ["time"] }
 anyhow = "1.0.43"
 rand = "0.8.4"
 bytes = "1.1.0"
+simple_logger = "1.13.0"
+log = "0.4.14"
