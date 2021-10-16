@@ -62,17 +62,14 @@ async fn main() -> Result<()> {
     ack(&conn).await?;
     ack(&conn1).await?;
 
+    let mut i = 0;
+
     loop {
         select! {
             Some((_addr, message)) = incoming_messages.next() => {
                 println!("Received by 1: {}", from_utf8(&message).unwrap().to_string());
-                tokio::time::sleep(Duration::from_secs(2)).await;
+                tokio::time::sleep(Duration::from_millis(100)).await;
                 ack(&conn).await?;
-            }
-            Some((_addr, message)) = incoming_messages1.next() => {
-                println!("Received by 2: {}", from_utf8(&message).unwrap().to_string());
-                tokio::time::sleep(Duration::from_millis(1500)).await;
-                ack(&conn1).await?;
             }
         }
     }

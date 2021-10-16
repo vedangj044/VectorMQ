@@ -36,7 +36,7 @@ async fn main() -> Result<()> {
     conn.send(Bytes::from("queue1")).await.unwrap();
     println!("Connected to queue - queue1");
 
-    for i in 1..10 {
+    for i in 1..50000 {
         conn.send(Bytes::from(format!("This is a new message, value {}", i)))
             .await?;
     }

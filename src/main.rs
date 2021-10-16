@@ -34,13 +34,15 @@ async fn main() -> Result<()> {
             SocketAddr::from((Ipv4Addr::LOCALHOST, 5555)),
             &[],
             Config {
-                idle_timeout: Duration::from_secs(3600).into(),
+                idle_timeout: Duration::from_secs(0).into(),
                 ..Default::default()
             },
         )
         .await?;
 
-    SimpleLogger::new().with_level(log::LevelFilter::Debug).init()?;
+    SimpleLogger::new()
+        .with_level(log::LevelFilter::Debug)
+        .init()?;
 
     log::info!("Server started at {}", node.public_addr());
 
@@ -51,8 +53,9 @@ async fn main() -> Result<()> {
 
     let (outgoing_tx, mut outgoing_rx) = mpsc::channel(32);
 
-    tokio::spawn(async move {
+    let (error_tx, mut error_rx) = mpsc::channel(32);
 
+    tokio::spawn(async move {
         // Hashmap of connection id with queue name
         let mut connection_map = HashMap::<SocketAddr, String>::new();
 
@@ -62,57 +65,70 @@ async fn main() -> Result<()> {
         // Available consumers on a queue
         let mut available_queue = HashMap::<String, VecDeque<SocketAddr>>::new();
 
-        while let Some((addr, msg)) = incoming_rx.recv().await {
-            let message_str = from_utf8(&msg).unwrap().to_string();
+        loop {
+            select! {
+                Some((addr, msg)) = incoming_rx.recv() => {
+                    let message_str = from_utf8(&msg).unwrap().to_string();
 
-            if connection_map.contains_key(&addr) == false {
-                connection_map.insert(addr.clone(), message_str.clone());
+                    if connection_map.contains_key(&addr) == false {
+                        connection_map.insert(addr.clone(), message_str.clone());
 
-                if main_queue.contains_key(&message_str) == false {
-                    let temp1: VecDeque<String> = VecDeque::new();
-                    main_queue.insert(message_str.clone(), temp1);
+                        if main_queue.contains_key(&message_str) == false {
+                            let temp1: VecDeque<String> = VecDeque::new();
+                            main_queue.insert(message_str.clone(), temp1);
 
-                    let temp: VecDeque<SocketAddr> = VecDeque::new();
-                    available_queue.insert(message_str.clone(), temp);
-                }
-            } else {
-                let queue_name = connection_map.get(&addr);
-                match queue_name {
-                    Some(q) => {
-                        if main_queue.contains_key(q) {
-                            if message_str.starts_with(ACK) {
-                                let msg = main_queue.get_mut(q).unwrap().pop_front();
-                                if msg.is_some() {
-                                    let res = outgoing_tx.send((addr, msg.unwrap())).await;
-                                    if res.is_err() {
-                                        log::error!("Error sending message to cosumer.");
-                                    }
-                                } else {
-                                    available_queue.get_mut(q).unwrap().push_back(addr);
-                                }
-                            } else {
-                                match available_queue.get_mut(q).unwrap().pop_front() {
-                                    Some(i) => {
-                                        let res = outgoing_tx.send((i, message_str.clone())).await;
-                                        if res.is_err() {
-                                            println!("Error occured hihi");
+                            let temp: VecDeque<SocketAddr> = VecDeque::new();
+                            available_queue.insert(message_str.clone(), temp);
+                        }
+                    } else {
+                        let queue_name = connection_map.get(&addr);
+                        match queue_name {
+                            Some(q) => {
+                                if main_queue.contains_key(q) {
+                                    if message_str.starts_with(ACK) {
+                                        let msg = main_queue.get_mut(q).unwrap().pop_front();
+                                        if msg.is_some() {
+                                            let res = outgoing_tx.send((addr, msg.unwrap())).await;
+                                            if res.is_err() {
+                                                log::error!("Error sending message to cosumer.");
+                                            }
+                                        } else {
+                                            available_queue.get_mut(q).unwrap().push_back(addr);
+                                        }
+                                    } else {
+                                        loop {
+                                            match available_queue.get_mut(q).unwrap().pop_front() {
+                                                Some(i) => {
+                                                    if connection_map.contains_key(&i) {
+                                                        let res = outgoing_tx.send((i, message_str.clone())).await;
+                                                        if res.is_err() {
+                                                            println!("Error occured");
+                                                        }
+                                                        break;
+                                                    }
+                                                }
+                                                None => {
+                                                    main_queue
+                                                        .get_mut(q)
+                                                        .unwrap()
+                                                        .push_back(message_str.clone());
+                                                    break;
+                                                }
+                                            }
                                         }
                                     }
-                                    None => {
-                                        main_queue
-                                            .get_mut(q)
-                                            .unwrap()
-                                            .push_back(message_str.clone());
-                                    }
+                                } else {
+                                    log::error!("Queue not found: {}", q);
                                 }
                             }
-                        } else {
-                            log::error!("Queue not found: {}", q);
+                            None => {
+                                log::error!("Connection {} not connected to any queue", addr);
+                            }
                         }
                     }
-                    None => {
-                        log::error!("Connection {} not connected to any queue", addr);
-                    }
+                }
+                Some(addr) = error_rx.recv() => {
+                    connection_map.remove(&addr);
                 }
             }
         }
@@ -125,8 +141,31 @@ async fn main() -> Result<()> {
                 log::debug!("Message received from {}", addr);
             }
             Some((addr, msg)) = outgoing_rx.recv() => {
-                node.connect_to(&addr).await?.send(Bytes::from(msg.clone())).await?;
-                log::debug!("Message sent to {}", addr);
+                let msg_bytes = Bytes::from(msg.clone());
+
+                match node.connect_to(&addr).await {
+                    Ok(conn) => {
+                        match conn.send(msg_bytes.clone()).await {
+                            Ok(_) => {
+                                log::debug!("Message sent to {}", addr);
+                            }
+                            Err(_) => {
+                                log::error!("Message sending failed to {}", addr);
+
+                                incoming_tx.send((addr, msg_bytes)).await?;
+                                log::debug!("Reusing same queue for failed message");
+                            }
+                        };
+                    }
+                    Err(_) => {
+                        log::error!("Connection failed to {}", addr);
+
+                        error_tx.send(addr).await?;
+                        incoming_tx.send((addr, msg_bytes)).await?;
+                        log::debug!("Reusing same queue for failed message");
+                    }
+                }
+
             }
         }
     }
