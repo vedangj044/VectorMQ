@@ -44,7 +44,6 @@ async fn main() -> Result<()> {
 
     tokio::spawn(async move {
         let mut connection_map = HashMap::<SocketAddr, String>::new();
-        let mut queue_map = HashMap::<String, Vec<SocketAddr>>::new();
 
         let mut main_queue = HashMap::<String, VecDeque<String>>::new();
         let mut available_queue = HashMap::<String, VecDeque<SocketAddr>>::new();
@@ -54,17 +53,12 @@ async fn main() -> Result<()> {
             if connection_map.contains_key(&addr) == false {
                 connection_map.insert(addr.clone(), message_str.clone());
 
-                if queue_map.contains_key(&message_str) == false {
-                    let temp: Vec<SocketAddr> = vec![addr];
-                    queue_map.insert(message_str.clone(), temp);
-
+                if main_queue.contains_key(&message_str) == false {
                     let temp1: VecDeque<String> = VecDeque::new();
                     main_queue.insert(message_str.clone(), temp1);
 
                     let temp: VecDeque<SocketAddr> = VecDeque::new();
                     available_queue.insert(message_str.clone(), temp);
-                } else {
-                    queue_map.get_mut(&message_str).unwrap().push(addr.clone());
                 }
             } else {
                 let queue_name = connection_map.get(&addr).unwrap();
