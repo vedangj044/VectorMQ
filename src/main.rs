@@ -1,16 +1,19 @@
-use anyhow::Result;
-// use bytes::Bytes;
-use qp2p::{Config, ConnId, Endpoint};
+use std::net::*;
+
 use std::{
     collections::{HashMap, VecDeque},
-    net::{Ipv4Addr, SocketAddr},
-    ops::Mul,
+    net::Ipv4Addr,
     str::from_utf8,
-    sync::{Arc, Mutex},
     time::Duration,
 };
-use tokio::{runtime::Handle, select};
-use tokio::sync::mpsc;
+
+use anyhow::Result;
+use bytes::Bytes;
+use qp2p::{Config, ConnId, Endpoint};
+use tokio::{
+    select,
+    sync::mpsc::{self, Receiver, Sender},
+};
 
 #[derive(Default, Ord, PartialEq, PartialOrd, Eq, Clone, Copy)]
 struct XId(pub [u8; 32]);
@@ -23,96 +26,86 @@ impl ConnId for XId {
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    // let queue_mapping: Arc<Mutex<HashMap<String, VecDeque<String>>>> =
-        // Arc::new(Mutex::new(HashMap::new()));
-    let connections: Arc<Mutex<HashMap<SocketAddr, String>>> = Arc::new(Mutex::new(HashMap::new()));
-
-    let mut queue_test: Arc<Mutex<HashMap<String, mpsc::Sender<String>>>> = Arc::new(Mutex::new(HashMap::new()));
-    
-
-    let (node, _incoming_conns, mut incoming_messages, _disconnections, _contact) =
+    let (node, _incoming_connections, mut incoming_messages, _disconnections, _contact) =
         Endpoint::<XId>::new(
             SocketAddr::from((Ipv4Addr::LOCALHOST, 5555)),
             &[],
             Config {
-                idle_timeout: Duration::from_secs(60 * 60).into(),
+                idle_timeout: Duration::from_secs(3600).into(),
                 ..Default::default()
             },
         )
         .await?;
 
-    loop {
-        select! {
-            queue_id = incoming_messages.next() => {
-                match queue_id {
-                    Some((socker_addr, queue_name_bytes)) => {
-                        let q = from_utf8(&queue_name_bytes).unwrap().to_string();
-                        println!("{}", q);
-        
-                        let mut dd = connections.lock().unwrap();
-                        if dd.contains_key(&socker_addr) {
-                            let q1 = dd.get(&socker_addr).unwrap();
-                            // let mut db = queue_mapping.lock().unwrap();
-                            // db.get_mut(q1).unwrap().push_back(q);
-                            
-                            let mut db = queue_test.lock().unwrap();
-                            let fuu = db.get_mut(q1).unwrap().send(q.clone()).await;
-                            match fuu {
-                                Err(e) => {
-                                    println!("{}", e);
-                                } 
-                                _ => {
+    let (tx, mut rx): (Sender<(SocketAddr, Bytes)>, Receiver<(SocketAddr, Bytes)>) =
+        mpsc::channel(32);
 
-                                }
-                            };
-                            // println!("Message {}, {}", q, fuu.is_ok());
+    let (tx1, mut rx1) = mpsc::channel(32);
 
-                        } else {
-                            let v: Vec<&str> = q.split("__").collect();
-        
-                            let queue_name = v.get(0).unwrap().to_owned();
-                            let con = v.get(1).unwrap().to_string();
-                            
-                            let (tx, mut rx) = mpsc::channel(32);
+    tokio::spawn(async move {
+        let mut connection_map = HashMap::<SocketAddr, String>::new();
+        let mut queue_map = HashMap::<String, Vec<SocketAddr>>::new();
 
-                            let mut db = queue_test.lock().unwrap();
-                            db.insert(queue_name.to_string(), tx);
-        
-        
-                            let consumer;
-                            if con == "con".to_string() {
-                                consumer = true;
-                                
-                                tokio::spawn(async move {
-                                    // println!("Bhai");
-                                    while let Some(message) = rx.recv().await { 
-                                        println!("hey, {}", message);
-                                    }
-                                });
+        let mut main_queue = HashMap::<String, VecDeque<String>>::new();
+        let mut available_queue = HashMap::<String, VecDeque<SocketAddr>>::new();
 
-                            } else {
-                                consumer = false;
-                            }
-                            println!("queue_name: {}, consumer : {:?}", queue_name, consumer);
-                            
-                            // let ve = VecDeque::new();
-        
-                            // let mut db = queue_mapping.lock().unwrap();
-                            // db.insert(queue_name.to_string(), ve);
-                            // hashmap.insert(queue_name.to_string(), ve);
-        
-                            // let mut cn = connections.lock().unwrap();
-                            dd.insert(socker_addr, queue_name.to_string());
+        while let Some((addr, msg)) = rx.recv().await {
+            let message_str = from_utf8(&msg).unwrap().to_string();
+            if connection_map.contains_key(&addr) == false {
+                connection_map.insert(addr.clone(), message_str.clone());
+
+                if queue_map.contains_key(&message_str) == false {
+                    let temp: Vec<SocketAddr> = vec![addr];
+                    queue_map.insert(message_str.clone(), temp);
+
+                    let temp1: VecDeque<String> = VecDeque::new();
+                    main_queue.insert(message_str.clone(), temp1);
+
+                    let temp: VecDeque<SocketAddr> = VecDeque::new();
+                    available_queue.insert(message_str.clone(), temp);
+                } else {
+                    queue_map.get_mut(&message_str).unwrap().push(addr.clone());
+                }
+            } else {
+                let queue_name = connection_map.get(&addr).unwrap();
+                if message_str.starts_with("###ack###") == true {
+                    let msg = main_queue.get_mut(queue_name).unwrap().pop_front();
+                    if msg.is_some() {
+                        let res = tx1.send((addr, msg.unwrap())).await;
+                        if res.is_err() {
+                            println!("Error occured hihi");
                         }
+                    } else {
+                        available_queue.get_mut(queue_name).unwrap().push_back(addr);
                     }
-                    None => {
-                        println!("Invalid queue name");
+                } else {
+                    match available_queue.get_mut(queue_name).unwrap().pop_front() {
+                        Some(i) => {
+                            let res = tx1.send((i, message_str.clone())).await;
+                            if res.is_err() {
+                                println!("Error occured hihi");
+                            }
+                        }
+                        None => {
+                            main_queue
+                                .get_mut(queue_name)
+                                .unwrap()
+                                .push_back(message_str.clone());
+                        }
                     }
                 }
             }
         }
+    });
 
-        // Creating a connection
-        // let queue_id = incoming_messages.next().await;
-    };
+    loop {
+        select! {
+            Some((addr, msg)) = incoming_messages.next() => {
+                tx.send((addr, msg)).await?;
+            }
+            Some((addr, msg)) = rx1.recv() => {
+                node.connect_to(&addr).await?.send(Bytes::from(msg.clone())).await?;
+            }
+        }
+    }
 }

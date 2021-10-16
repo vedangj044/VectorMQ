@@ -1,14 +1,7 @@
 use anyhow::Result;
 use bytes::Bytes;
 use qp2p::{Config, ConnId, Endpoint};
-use std::{
-    collections::{HashMap, VecDeque},
-    net::{Ipv4Addr, SocketAddr},
-    ptr::NonNull,
-    str::from_utf8,
-    time::Duration,
-};
-use tokio::{runtime::Handle, select};
+use std::{net::*, time::Duration};
 
 #[derive(Default, Ord, PartialEq, PartialOrd, Eq, Clone, Copy)]
 struct XId(pub [u8; 32]);
@@ -21,24 +14,7 @@ impl ConnId for XId {
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    let mut hashmap: HashMap<String, VecDeque<String>> = HashMap::new();
-    let vec: VecDeque<String> = VecDeque::new();
-
-    // let mut i = 1;
-    // loop {
-    //     if i == 0 {
-    //         break;
-    //     }
-    //     i -= 1;
-
-    //     tokio::spawn(async move {
-    //         // Creating a connection
-
-    //     })
-    //     .await;
-    // }
-
-    let (node, incoming_conns, mut incoming_messages, _disconnections, _contact) =
+    let (node, _incoming_conns, mut _incoming_messages, _disconnections, _contact) =
         Endpoint::<XId>::new(
             SocketAddr::from((Ipv4Addr::LOCALHOST, 0)),
             &[],
@@ -47,31 +23,23 @@ async fn main() -> Result<()> {
                 ..Default::default()
             },
         )
-        .await
-        .unwrap();
+        .await?;
 
-    println!("Connectes {}", node.public_addr());
+    println!("Prodcuer started on {}", node.public_addr());
 
     let conn = node
         .connect_to(&SocketAddr::from((Ipv4Addr::LOCALHOST, 5555)))
-        .await
-        .unwrap();
+        .await?;
 
-    conn.send(Bytes::from("vedang__pub")).await?;
+    println!("Connected to server");
 
-    conn.send(Bytes::from("123")).await?;
-    println!("Sent1");
-    // node.try_send_message(Bytes::from("1233"), &SocketAddr::from((Ipv4Addr::LOCALHOST, 5555)), 0).await;
+    conn.send(Bytes::from("queue1")).await.unwrap();
+    println!("Connected to queue - queue1");
 
-    conn.send(Bytes::from("234")).await?;
-    println!("Sent2");
-
-    conn.send(Bytes::from("345")).await.unwrap();
-    println!("Sent3");
-
-    conn.send(Bytes::from("456")).await.unwrap();
-    conn.send(Bytes::from("567")).await.unwrap();
-    conn.send(Bytes::from("print")).await.unwrap();
+    for i in 1..10 {
+        conn.send(Bytes::from(format!("This is a new message, value {}", i)))
+            .await?;
+    }
 
     Ok(())
 }

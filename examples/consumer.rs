@@ -1,14 +1,7 @@
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use bytes::Bytes;
-use qp2p::{Config, ConnId, Endpoint};
-use std::{
-    collections::{HashMap, VecDeque},
-    net::{Ipv4Addr, SocketAddr},
-    ptr::NonNull,
-    str::from_utf8,
-    time::Duration,
-};
-use tokio::{runtime::Handle, select};
+use qp2p::{Config, ConnId, Connection, Endpoint};
+use std::{net::*, str::from_utf8, time::Duration};
 
 #[derive(Default, Ord, PartialEq, PartialOrd, Eq, Clone, Copy)]
 struct XId(pub [u8; 32]);
@@ -32,17 +25,29 @@ async fn main() -> Result<()> {
         )
         .await?;
 
-    println!("Consumes {}", node.public_addr());
+    println!("Consumer started on {}", node.public_addr());
 
     let conn = node
         .connect_to(&SocketAddr::from((Ipv4Addr::LOCALHOST, 5555)))
         .await?;
 
-    conn.send(Bytes::from("vedang__con")).await.unwrap();
+    println!("Connected to server");
+
+    conn.send(Bytes::from("queue1")).await.unwrap();
+    println!("Connected to queue - queue1");
+
+    ack(&conn).await?;
 
     while let Some((_addr, message)) = incoming_messages.next().await {
         println!("Received {}", from_utf8(&message).unwrap().to_string());
+        ack(&conn).await?;
     }
 
     Ok(())
+}
+
+async fn ack(conn: &Connection<XId>) -> Result<()> {
+    conn.send(Bytes::from("###ack###"))
+        .await
+        .map_err(|e| anyhow!("Error ack {}", e))
 }
