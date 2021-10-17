@@ -37,38 +37,13 @@ async fn main() -> Result<()> {
     conn.send(Bytes::from("queue1")).await.unwrap();
     println!("Connected 1 to queue - queue1");
 
-    // first
-
-    let (node1, _incoming_conns, mut incoming_messages1, _disconnections, _contact) =
-        Endpoint::<XId>::new(
-            SocketAddr::from((Ipv4Addr::LOCALHOST, 0)),
-            &[],
-            Config {
-                idle_timeout: Duration::from_secs(60 * 60).into(),
-                ..Default::default()
-            },
-        )
-        .await?;
-
-    println!("Consumer started on {}", node.public_addr());
-
-    let conn1 = node1
-        .connect_to(&SocketAddr::from((Ipv4Addr::LOCALHOST, 5555)))
-        .await?;
-
-    conn1.send(Bytes::from("queue1")).await.unwrap();
-    println!("Connected 2 to queue - queue1");
-
     ack(&conn).await?;
-    ack(&conn1).await?;
-
-    let mut i = 0;
 
     loop {
         select! {
             Some((_addr, message)) = incoming_messages.next() => {
                 println!("Received by 1: {}", from_utf8(&message).unwrap().to_string());
-                tokio::time::sleep(Duration::from_millis(100)).await;
+                tokio::time::sleep(Duration::from_millis(1)).await;
                 ack(&conn).await?;
             }
         }

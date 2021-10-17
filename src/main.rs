@@ -29,12 +29,12 @@ impl ConnId for XId {
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    let (node, _incoming_connections, mut incoming_messages, _disconnections, _contact) =
+    let (node, _incoming_connections, mut incoming_messages, mut disconnections, _contact) =
         Endpoint::<XId>::new(
             SocketAddr::from((Ipv4Addr::LOCALHOST, 5555)),
             &[],
             Config {
-                idle_timeout: Duration::from_secs(0).into(),
+                idle_timeout: Duration::from_secs(10).into(),
                 ..Default::default()
             },
         )
@@ -145,7 +145,7 @@ async fn main() -> Result<()> {
 
                 match node.connect_to(&addr).await {
                     Ok(conn) => {
-                        match conn.send(msg_bytes.clone()).await {
+                        match conn.send_with(msg_bytes.clone(), 0, None).await {
                             Ok(_) => {
                                 log::debug!("Message sent to {}", addr);
                             }
@@ -160,12 +160,16 @@ async fn main() -> Result<()> {
                     Err(_) => {
                         log::error!("Connection failed to {}", addr);
 
-                        error_tx.send(addr).await?;
                         incoming_tx.send((addr, msg_bytes)).await?;
+                        error_tx.send(addr).await?;
                         log::debug!("Reusing same queue for failed message");
                     }
                 }
 
+            }
+            Some(addr) = disconnections.next() => {
+                log::debug!("Disconnected {}", addr);
+                error_tx.send(addr).await?;
             }
         }
     }

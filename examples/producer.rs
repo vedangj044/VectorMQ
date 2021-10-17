@@ -33,12 +33,13 @@ async fn main() -> Result<()> {
 
     println!("Connected to server");
 
-    conn.send(Bytes::from("queue1")).await.unwrap();
+    conn.send(Bytes::from("queue")).await.unwrap();
     println!("Connected to queue - queue1");
 
-    for i in 1..50000 {
+    for i in 1..10 {
         conn.send(Bytes::from(format!("This is a new message, value {}", i)))
             .await?;
+        tokio::time::sleep(Duration::from_secs(1)).await;
     }
 
     Ok(())
