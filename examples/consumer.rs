@@ -34,7 +34,7 @@ async fn main() -> Result<()> {
 
     println!("Connected to server");
 
-    conn.send(Bytes::from("queue1")).await.unwrap();
+    conn.send(Bytes::from("queue")).await.unwrap();
     println!("Connected 1 to queue - queue1");
 
     ack(&conn).await?;

@@ -34,7 +34,7 @@ async fn main() -> Result<()> {
             SocketAddr::from((Ipv4Addr::LOCALHOST, 5555)),
             &[],
             Config {
-                idle_timeout: Duration::from_secs(10).into(),
+                idle_timeout: Duration::from_secs(60*5).into(),
                 ..Default::default()
             },
         )
